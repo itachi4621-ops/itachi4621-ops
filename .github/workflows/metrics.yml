@@ -1,0 +1,60 @@
+name: Profile Metrics
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 1 * * *"
+permissions:
+  contents: write
+concurrency:
+  group: profile-metrics
+  cancel-in-progress: false
+jobs:
+  metrics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      METRICS_TOKEN: ${{ secrets.METRICS_TOKEN }}
+    steps:
+      - name: Explain missing setup
+        if: env.METRICS_TOKEN == ''
+        run: echo "::notice::Add the METRICS_TOKEN repository secret to enable profile metrics."
+      - name: Checkout
+        if: env.METRICS_TOKEN != ''
+        uses: actions/checkout@v4
+      - name: Generate public profile metrics
+        if: env.METRICS_TOKEN != ''
+        uses: lowlighter/metrics@366f8b9dfe3a59656c67d5dcad9950f59c9bc96d
+        with:
+          token: ${{ secrets.METRICS_TOKEN }}
+          user: itachi4621-ops
+          filename: github-metrics.svg
+          output_action: none
+          template: classic
+          base: header, activity, community, repositories
+          config_timezone: Asia/Kolkata
+          plugin_isocalendar: yes
+          plugin_isocalendar_duration: half-year
+          plugin_languages: yes
+          plugin_languages_limit: 5
+          plugin_languages_details: percentage
+      - name: Publish metrics and reveal profile card
+        if: env.METRICS_TOKEN != ''
+        run: |
+          sudo cp /metrics_renders/github-metrics.svg github-metrics.svg
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("README.md")
+          text = p.read_text()
+          start = "<!-- METRICS:START -->"
+          end = "<!-- METRICS:END -->"
+          card = '\n\n### GitHub activity\n\n![GitHub activity and languages](./github-metrics.svg)\n\n'
+          before, remaining = text.split(start, 1)
+          _, after = remaining.split(end, 1)
+          p.write_text(before + start + card + end + after)
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md github-metrics.svg
+          git diff --cached --quiet && exit 0
+          git commit -m "Refresh profile metrics"
+          git push
